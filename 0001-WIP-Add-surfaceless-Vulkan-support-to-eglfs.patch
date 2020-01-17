@@ -1,0 +1,112 @@
+From 692d63bd512ee4ef9b3b4c754ce414c5f214963f Mon Sep 17 00:00:00 2001
+From: Laszlo Agocs <laszlo.agocs@qt.io>
+Date: Fri, 17 Jan 2020 15:06:47 +0100
+Subject: [PATCH] WIP: Add surfaceless Vulkan support to eglfs
+
+There is no reason not to allow creating Vulkan instances.
+
+There is no WSI support here, so Vulkan QWindows are not
+functional as-is.
+
+Change-Id: I7530aa026d4b904b9de83f9bdbdc4897ae770e71
+---
+ .../platforms/eglfs/api/qeglfsintegration.cpp | 48 +++++++++++++++++++
+ .../platforms/eglfs/api/qeglfsintegration_p.h |  3 ++
+ .../eglfs/eglfsdeviceintegration.pro          |  3 ++
+ 3 files changed, 54 insertions(+)
+
+diff --git a/src/plugins/platforms/eglfs/api/qeglfsintegration.cpp b/src/plugins/platforms/eglfs/api/qeglfsintegration.cpp
+index d9a3545a95..54f7eb2c50 100644
+--- a/src/plugins/platforms/eglfs/api/qeglfsintegration.cpp
++++ b/src/plugins/platforms/eglfs/api/qeglfsintegration.cpp
+@@ -98,6 +98,8 @@
+ 
+ #include <QtPlatformHeaders/qeglfsfunctions.h>
+ 
++#include <QtVulkanSupport/private/qbasicvulkanplatforminstance_p.h>
++
+ static void initResources()
+ {
+ #ifndef QT_NO_CURSOR
+@@ -489,4 +491,50 @@ EGLNativeDisplayType QEglFSIntegration::nativeDisplay() const
+     return qt_egl_device_integration()->platformDisplay();
+ }
+ 
++#if QT_CONFIG(vulkan)
++class QEglFSVulkanInstance : public QBasicPlatformVulkanInstance
++{
++public:
++    QEglFSVulkanInstance(QVulkanInstance *instance);
++
++    void createOrAdoptInstance() override;
++    bool supportsPresent(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, QWindow *window) override;
++    void presentQueued(QWindow *window) override;
++
++private:
++    QVulkanInstance *m_instance;
++};
++
++QEglFSVulkanInstance::QEglFSVulkanInstance(QVulkanInstance *instance)
++    : m_instance(instance)
++{
++    loadVulkanLibrary(QStringLiteral("vulkan"));
++}
++
++void QEglFSVulkanInstance::createOrAdoptInstance()
++{
++    initInstance(m_instance, QByteArrayList() << QByteArrayLiteral("VK_KHR_display"));
++}
++
++bool QEglFSVulkanInstance::supportsPresent(VkPhysicalDevice physicalDevice,
++                                           uint32_t queueFamilyIndex,
++                                           QWindow *window)
++{
++    Q_UNUSED(physicalDevice);
++    Q_UNUSED(queueFamilyIndex);
++    Q_UNUSED(window);
++    return true;
++}
++
++void QEglFSVulkanInstance::presentQueued(QWindow *window)
++{
++    Q_UNUSED(window);
++}
++
++QPlatformVulkanInstance *QEglFSIntegration::createPlatformVulkanInstance(QVulkanInstance *instance) const
++{
++    return new QEglFSVulkanInstance(instance);
++}
++#endif
++
+ QT_END_NAMESPACE
+diff --git a/src/plugins/platforms/eglfs/api/qeglfsintegration_p.h b/src/plugins/platforms/eglfs/api/qeglfsintegration_p.h
+index 898b322834..b293651ce7 100644
+--- a/src/plugins/platforms/eglfs/api/qeglfsintegration_p.h
++++ b/src/plugins/platforms/eglfs/api/qeglfsintegration_p.h
+@@ -85,6 +85,9 @@ public:
+ #ifndef QT_NO_OPENGL
+     QPlatformOpenGLContext *createPlatformOpenGLContext(QOpenGLContext *context) const override;
+     QPlatformOffscreenSurface *createPlatformOffscreenSurface(QOffscreenSurface *surface) const override;
++#endif
++#if QT_CONFIG(vulkan)
++    QPlatformVulkanInstance *createPlatformVulkanInstance(QVulkanInstance *instance) const override;
+ #endif
+     bool hasCapability(QPlatformIntegration::Capability cap) const override;
+ 
+diff --git a/src/plugins/platforms/eglfs/eglfsdeviceintegration.pro b/src/plugins/platforms/eglfs/eglfsdeviceintegration.pro
+index 8bb7b614f1..bd02aea4d3 100644
+--- a/src/plugins/platforms/eglfs/eglfsdeviceintegration.pro
++++ b/src/plugins/platforms/eglfs/eglfsdeviceintegration.pro
+@@ -20,6 +20,9 @@ qtHaveModule(input_support-private): \
+ qtHaveModule(platformcompositor_support-private): \
+     QT += platformcompositor_support-private
+ 
++qtConfig(vulkan): \
++    QT += vulkan_support-private
++
+ # Avoid X11 header collision, use generic EGL native types
+ DEFINES += QT_EGL_NO_X11
+ 
+-- 
+2.17.1
+
